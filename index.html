@@ -729,7 +729,7 @@
 
             const warpedMask = new cv.Mat();
             cv.warpAffine(mask, warpedMask, M, new cv.Size(dstW, dstH),
-                cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(0));
+                cv.INTER_NEAREST, cv.BORDER_CONSTANT, new cv.Scalar(0));
 
             // 转换为BGRA并设置alpha
             const warpedBgra = new cv.Mat();
@@ -748,12 +748,17 @@
                     const resultIdx = ((y + dstYMin) * width + (x + dstXMin)) * 4;
                     const warpedIdx = (y * dstW + x) * 4;
 
-                    const alpha = warpedBgra.data[warpedIdx + 3] / 255.0;
+                    const alphaValue = warpedBgra.data[warpedIdx + 3];
 
-                    resultData[resultIdx] = warpedBgra.data[warpedIdx] * alpha + resultData[resultIdx] * (1 - alpha);
-                    resultData[resultIdx + 1] = warpedBgra.data[warpedIdx + 1] * alpha + resultData[resultIdx + 1] * (1 - alpha);
-                    resultData[resultIdx + 2] = warpedBgra.data[warpedIdx + 2] * alpha + resultData[resultIdx + 2] * (1 - alpha);
-                    resultData[resultIdx + 3] = warpedBgra.data[warpedIdx + 3] * alpha + resultData[resultIdx + 3] * (1 - alpha);
+                    // 使用阈值避免半透明边缘变灰：alpha > 128 才混合
+                    if (alphaValue > 128) {
+                        // 完全替换像素
+                        resultData[resultIdx] = warpedBgra.data[warpedIdx];
+                        resultData[resultIdx + 1] = warpedBgra.data[warpedIdx + 1];
+                        resultData[resultIdx + 2] = warpedBgra.data[warpedIdx + 2];
+                        resultData[resultIdx + 3] = 255;
+                    }
+                    // alpha <= 128 的像素保持原样（不修改）
                 }
             }
 
