@@ -648,8 +648,8 @@
 
         // 处理单个三角形
         async function processTriangle(result, srcTri, dstTri, width, height) {
-            // 计算源三角形边界
-            const srcTriArr = srcTri.map(p => [p.originalX, p.originalY]);
+            // 计算源三角形边界（src使用current坐标，即鼠标移动后的坐标）
+            const srcTriArr = srcTri.map(p => [p.currentX, p.currentY]);
             let srcXMin = Math.floor(Math.min(...srcTriArr.map(p => p[0])));
             let srcXMax = Math.ceil(Math.max(...srcTriArr.map(p => p[0])));
             let srcYMin = Math.floor(Math.min(...srcTriArr.map(p => p[1])));
@@ -663,8 +663,8 @@
 
             if (srcXMax <= srcXMin || srcYMax <= srcYMin) return;
 
-            // 计算目标三角形边界
-            const dstTriArr = dstTri.map(p => [p.currentX, p.currentY]);
+            // 计算目标三角形边界（dst使用original坐标，即格网点坐标）
+            const dstTriArr = dstTri.map(p => [p.originalX, p.originalY]);
             let dstXMin = Math.floor(Math.min(...dstTriArr.map(p => p[0])));
             let dstXMax = Math.ceil(Math.max(...dstTriArr.map(p => p[0])));
             let dstYMin = Math.floor(Math.min(...dstTriArr.map(p => p[1])));
@@ -685,14 +685,14 @@
 
             // 调整三角形坐标（相对于源区域）
             const srcTriAdj = srcTri.map(p => [
-                p.originalX - srcXMin,
-                p.originalY - srcYMin
+                p.currentX - srcXMin,
+                p.currentY - srcYMin
             ]);
 
             // 调整目标三角形坐标（相对于目标区域）
             const dstTriAdj = dstTri.map(p => [
-                p.currentX - dstXMin,
-                p.currentY - dstYMin
+                p.originalX - dstXMin,
+                p.originalY - dstYMin
             ]);
 
             // OpenCV格式的三角形坐标
