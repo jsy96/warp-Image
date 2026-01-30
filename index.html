@@ -627,6 +627,10 @@
                     }
                     state.originalImageData = result.clone();  // 存储BGRA格式
 
+                    // 现在可以安全删除result和resultRgba了
+                    result.delete();
+                    resultRgba.delete();
+
                     // 重新初始化控制点（基于新图像）
                     initControlPoints();
                     drawImage();
@@ -634,9 +638,6 @@
                     elements.processingOverlay.classList.add('hidden');
                 };
                 img.src = tempCanvas.toDataURL();
-
-                // 注意：resultRgba在回调中克隆，不在这里删除
-                result.delete();
 
             } catch (error) {
                 console.error('Warp error:', error);
