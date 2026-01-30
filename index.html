@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图像几何校正 - GDAL Warp</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* 顶部参数配置区 */
+        .config-panel {
+            background: #2d2d2d;
+            padding: 15px 20px;
+            border-bottom: 2px solid #3d3d3d;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .config-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .config-group label {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .config-group input[type="number"] {
+            width: 80px;
+            padding: 8px 12px;
+            background: #3d3d3d;
+            border: 1px solid #4d4d4d;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        .config-group input[type="number"]:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #45a049;
+        }
+
+        .btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #2196F3;
+        }
+
+        .btn-secondary:hover {
+            background: #0b7dda;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-input-label {
+            padding: 10px 20px;
+            background: #FF9800;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: inline-block;
+            transition: background 0.3s;
+        }
+
+        .file-input-label:hover {
+            background: #e68900;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            font-size: 14px;
+            color: #aaa;
+            cursor: pointer;
+        }
+
+        .status {
+            margin-left: auto;
+            font-size: 13px;
+            color: #888;
+        }
+
+        .status.loading {
+            color: #FF9800;
+        }
+
+        .status.success {
+            color: #4CAF50;
+        }
+
+        .status.error {
+            color: #f44336;
+        }
+
+        /* 图像显示区 */
+        .image-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: #252525;
+            padding: 10px 15px;
+            font-size: 14px;
+            color: #aaa;
+            border-bottom: 1px solid #3d3d3d;
+        }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: auto;
+            background: #1e1e1e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .canvas-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        canvas {
+            display: block;
+            max-width: none;
+        }
+
+        /* 控制点样式 */
+        .control-point {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: rgba(255, 0, 0, 0.8);
+            border: 2px solid #fff;
+            border-radius: 50%;
+            cursor: move;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            transition: background 0.2s;
+        }
+
+        .control-point:hover {
+            background: rgba(255, 50, 50, 1);
+        }
+
+        .control-point.dragging {
+            background: rgba(255, 100, 100, 1);
+            z-index: 100;
+        }
+
+        /* 空状态提示 */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #555;
+            font-size: 16px;
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部参数配置区 -->
+        <div class="config-panel">
+            <div class="file-input-wrapper">
+                <input type="file" id="imageInput" accept="image/*">
+                <label for="imageInput" class="file-input-label">选择图像</label>
+            </div>
+
+            <div class="config-group">
+                <label for="gridX">横向控制点 (X):</label>
+                <input type="number" id="gridX" min="2" value="6">
+            </div>
+
+            <div class="config-group">
+                <label for="gridY">纵向控制点 (Y):</label>
+                <input type="number" id="gridY" min="2" value="6">
+            </div>
+
+            <button class="btn btn-secondary" id="updateGridBtn">更新网格</button>
+
+            <div class="checkbox-group">
+                <input type="checkbox" id="realtimeWarp">
+                <label for="realtimeWarp">实时Warp处理</label>
+            </div>
+
+            <button class="btn" id="warpBtn" disabled>执行Warp</button>
+
+            <button class="btn btn-secondary" id="saveBtn" disabled style="background: #9C27B0;">保存图像</button>
+
+            <div class="status" id="status">请选择图像</div>
+        </div>
+
+        <!-- 图像显示区 -->
+        <div class="image-area">
+            <div class="panel-header">图像显示 (拖拽红色控制点进行几何校正)</div>
+            <div class="canvas-container" id="canvasContainer">
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                    </svg>
+                    <span>请选择图像文件</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        const state = {
+            originalImage: null,
+            displayImage: null,  // 当前显示的图像（可能是warp后的）
+            gridX: 6,
+            gridY: 6,
+            controlPoints: [],
+            isDragging: false,
+            draggedPoint: null,
+            realtimeWarp: false,
+            isWarped: false  // 标记当前显示的是否为warp后的图像
+        };
+
+        // DOM元素
+        const elements = {
+            imageInput: document.getElementById('imageInput'),
+            gridX: document.getElementById('gridX'),
+            gridY: document.getElementById('gridY'),
+            updateGridBtn: document.getElementById('updateGridBtn'),
+            warpBtn: document.getElementById('warpBtn'),
+            saveBtn: document.getElementById('saveBtn'),
+            realtimeWarp: document.getElementById('realtimeWarp'),
+            status: document.getElementById('status'),
+            canvasContainer: document.getElementById('canvasContainer')
+        };
+
+        // 初始化控制点
+        function initControlPoints() {
+            state.controlPoints = [];
+            const cellWidth = state.originalImage.width / (state.gridX - 1);
+            const cellHeight = state.originalImage.height / (state.gridY - 1);
+
+            for (let y = 0; y < state.gridY; y++) {
+                for (let x = 0; x < state.gridX; x++) {
+                    state.controlPoints.push({
+                        id: `${x}-${y}`,
+                        originalX: x * cellWidth,
+                        originalY: y * cellHeight,
+                        currentX: x * cellWidth,
+                        currentY: y * cellHeight
+                    });
+                }
+            }
+            state.isWarped = false;
+        }
+
+        // 绘制图像（带网格线和控制点）
+        function drawImage() {
+            if (!state.displayImage) return;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = state.displayImage.width;
+            canvas.height = state.displayImage.height;
+            const ctx = canvas.getContext('2d');
+
+            // 绘制图像
+            ctx.drawImage(state.displayImage, 0, 0);
+
+            // 绘制网格线（基于当前控制点位置）
+            drawGridLines(ctx, canvas.width, canvas.height);
+
+            // 更新容器
+            elements.canvasContainer.innerHTML = '';
+            const wrapper = document.createElement('div');
+            wrapper.className = 'canvas-wrapper';
+            wrapper.style.position = 'relative';
+            wrapper.appendChild(canvas);
+
+            // 添加控制点
+            state.controlPoints.forEach((point, index) => {
+                const pointEl = document.createElement('div');
+                pointEl.className = 'control-point';
+                pointEl.dataset.index = index;
+                pointEl.style.left = point.currentX + 'px';
+                pointEl.style.top = point.currentY + 'px';
+
+                // 拖拽事件
+                pointEl.addEventListener('mousedown', startDrag);
+                wrapper.appendChild(pointEl);
+            });
+
+            elements.canvasContainer.appendChild(wrapper);
+        }
+
+        // 绘制网格线
+        function drawGridLines(ctx, width, height) {
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
+            ctx.lineWidth = 1;
+
+            // 绘制连接控制点的网格线
+            // 垂直线（连接同一列的控制点）
+            for (let x = 0; x < state.gridX; x++) {
+                ctx.beginPath();
+                for (let y = 0; y < state.gridY; y++) {
+                    const index = y * state.gridX + x;
+                    const point = state.controlPoints[index];
+                    if (y === 0) {
+                        ctx.moveTo(point.currentX, point.currentY);
+                    } else {
+                        ctx.lineTo(point.currentX, point.currentY);
+                    }
+                }
+                ctx.stroke();
+            }
+
+            // 水平线（连接同一行的控制点）
+            for (let y = 0; y < state.gridY; y++) {
+                ctx.beginPath();
+                for (let x = 0; x < state.gridX; x++) {
+                    const index = y * state.gridX + x;
+                    const point = state.controlPoints[index];
+                    if (x === 0) {
+                        ctx.moveTo(point.currentX, point.currentY);
+                    } else {
+                        ctx.lineTo(point.currentX, point.currentY);
+                    }
+                }
+                ctx.stroke();
+            }
+        }
+
+        // 开始拖拽
+        function startDrag(e) {
+            e.preventDefault();
+            state.isDragging = true;
+            state.draggedPoint = parseInt(e.target.dataset.index);
+            e.target.classList.add('dragging');
+
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', stopDrag);
+        }
+
+        // 拖拽中
+        function drag(e) {
+            if (!state.isDragging) return;
+
+            const wrapper = elements.canvasContainer.querySelector('.canvas-wrapper');
+            const rect = wrapper.getBoundingClientRect();
+            const canvas = wrapper.querySelector('canvas');
+
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // 限制在画布范围内
+            const clampedX = Math.max(0, Math.min(canvas.width, x));
+            const clampedY = Math.max(0, Math.min(canvas.height, y));
+
+            // 更新控制点位置
+            state.controlPoints[state.draggedPoint].currentX = clampedX;
+            state.controlPoints[state.draggedPoint].currentY = clampedY;
+
+            // 更新DOM元素位置
+            const pointEl = wrapper.querySelectorAll('.control-point')[state.draggedPoint];
+            pointEl.style.left = clampedX + 'px';
+            pointEl.style.top = clampedY + 'px';
+
+            // 重新绘制网格线（不需要重新绘制整个canvas，只需要更新）
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(state.displayImage, 0, 0);
+            drawGridLines(ctx, canvas.width, canvas.height);
+
+            // 实时Warp
+            if (state.realtimeWarp) {
+                performWarp();
+            }
+        }
+
+        // 停止拖拽
+        function stopDrag(e) {
+            if (!state.isDragging) return;
+
+            const wrapper = elements.canvasContainer.querySelector('.canvas-wrapper');
+            const pointEl = wrapper.querySelectorAll('.control-point')[state.draggedPoint];
+            pointEl.classList.remove('dragging');
+
+            state.isDragging = false;
+            state.draggedPoint = null;
+
+            document.removeEventListener('mousemove', drag);
+            document.removeEventListener('mouseup', stopDrag);
+        }
+
+        // 执行Warp
+        async function performWarp() {
+            if (!state.originalImage) return;
+
+            setStatus('正在执行Warp处理...', 'loading');
+            elements.warpBtn.disabled = true;
+
+            try {
+                // 准备GCP控制点数据
+                const gcps = state.controlPoints.map(p => ({
+                    sourceX: Math.round(p.originalX),
+                    sourceY: Math.round(p.originalY),
+                    targetX: Math.round(p.currentX),
+                    targetY: Math.round(p.currentY)
+                }));
+
+                // 将原始图像转换为base64
+                const canvas = document.createElement('canvas');
+                canvas.width = state.originalImage.width;
+                canvas.height = state.originalImage.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(state.originalImage, 0, 0);
+                const imageData = canvas.toDataURL('image/png');
+
+                // 发送到后端
+                const response = await fetch('http://localhost:5000/api/warp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image: imageData,
+                        gcps: gcps,
+                        gridX: state.gridX,
+                        gridY: state.gridY,
+                        width: state.originalImage.width,
+                        height: state.originalImage.height
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Warp处理失败');
+                }
+
+                const result = await response.json();
+
+                // 加载Warp后的图像，并将其设为新的原始图像
+                const warpedImg = new Image();
+                warpedImg.onload = () => {
+                    // 将warp后的图像设为新的原始图像
+                    state.originalImage = warpedImg;
+                    state.displayImage = warpedImg;
+                    state.isWarped = true;
+                    // 重新初始化控制点（基于新的图像）
+                    initControlPoints();
+                    drawImage();
+                    setStatus('Warp处理完成', 'success');
+                    elements.warpBtn.disabled = false;
+                };
+                warpedImg.onerror = () => {
+                    throw new Error('加载Warp图像失败');
+                };
+                warpedImg.src = 'data:image/png;base64,' + result.image;
+
+            } catch (error) {
+                console.error('Warp error:', error);
+                setStatus('Warp处理失败: ' + error.message, 'error');
+                elements.warpBtn.disabled = false;
+            }
+        }
+
+        // 设置状态
+        function setStatus(message, type = '') {
+            elements.status.textContent = message;
+            elements.status.className = 'status ' + type;
+        }
+
+        // 保存图像到本地
+        function saveImage() {
+            if (!state.displayImage) {
+                setStatus('没有可保存的图像', 'error');
+                return;
+            }
+
+            // 创建canvas并绘制当前图像（不包含网格线和控制点）
+            const canvas = document.createElement('canvas');
+            canvas.width = state.displayImage.width;
+            canvas.height = state.displayImage.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(state.displayImage, 0, 0);
+
+            // 转换为blob并下载
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'warped_image_' + Date.now() + '.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setStatus('图像已保存', 'success');
+            }, 'image/png');
+        }
+
+        // 事件监听
+        elements.imageInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            setStatus('正在加载图像...', 'loading');
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    state.originalImage = img;
+                    state.displayImage = img;
+                    state.gridX = parseInt(elements.gridX.value) || 3;
+                    state.gridY = parseInt(elements.gridY.value) || 3;
+                    initControlPoints();
+                    drawImage();
+                    elements.warpBtn.disabled = false;
+                    elements.saveBtn.disabled = false;
+                    setStatus('图像已加载，拖拽控制点进行几何校正', 'success');
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        elements.updateGridBtn.addEventListener('click', () => {
+            const newX = parseInt(elements.gridX.value);
+            const newY = parseInt(elements.gridY.value);
+
+            if (newX < 2 || newY < 2) {
+                setStatus('控制点数必须大于等于2', 'error');
+                return;
+            }
+
+            state.gridX = newX;
+            state.gridY = newY;
+
+            if (state.originalImage) {
+                initControlPoints();
+                state.displayImage = state.originalImage;
+                drawImage();
+                setStatus('网格已更新', 'success');
+            }
+        });
+
+        elements.warpBtn.addEventListener('click', performWarp);
+
+        elements.saveBtn.addEventListener('click', saveImage);
+
+        elements.realtimeWarp.addEventListener('change', (e) => {
+            state.realtimeWarp = e.target.checked;
+        });
+
+        // 输入验证
+        elements.gridX.addEventListener('change', () => {
+            if (elements.gridX.value < 2) elements.gridX.value = 2;
+        });
+
+        elements.gridY.addEventListener('change', () => {
+            if (elements.gridY.value < 2) elements.gridY.value = 2;
+        });
+    </script>
+</body>
+</html>
