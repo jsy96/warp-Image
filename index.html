@@ -725,11 +725,11 @@
             const warpedBgra = new cv.Mat();
             cv.cvtColor(warpedImg, warpedBgra, cv.COLOR_BGR2BGRA);
 
-            // 将mask作为alpha通道
-            const channels = new cv.MatVector();
-            cv.split(warpedBgra, channels);
-            channels.push(warpedMask);
-            cv.merge(channels, warpedBgra);
+            // 直接将mask复制到alpha通道（第4通道，索引3）
+            for (let i = 0; i < warpedBgra.data.length; i += 4) {
+                const maskIdx = i / 4;
+                warpedBgra.data[i + 3] = warpedMask.data[maskIdx];
+            }
 
             // Alpha混合到结果
             const roi = result.roi(new cv.Rect(dstXMin, dstYMin, dstW, dstH));
@@ -753,7 +753,6 @@
             warpedImg.delete();
             warpedMask.delete();
             warpedBgra.delete();
-            channels.delete();
         }
 
         // 保存图像
