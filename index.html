@@ -731,16 +731,20 @@
                 warpedBgra.data[i + 3] = warpedMask.data[maskIdx];
             }
 
-            // Alpha混合到结果
-            const roi = result.roi(new cv.Rect(dstXMin, dstYMin, dstW, dstH));
+            // Alpha混合到结果（直接操作result数据，避免roi引用问题）
+            const resultData = result.data;
+            for (let y = 0; y < dstH; y++) {
+                for (let x = 0; x < dstW; x++) {
+                    const resultIdx = ((y + dstYMin) * width + (x + dstXMin)) * 4;
+                    const warpedIdx = (y * dstW + x) * 4;
 
-            // 简单的alpha混合
-            for (let i = 0; i < roi.data.length; i += 4) {
-                const alpha = warpedBgra.data[i + 3] / 255.0;
-                roi.data[i] = warpedBgra.data[i] * alpha + roi.data[i] * (1 - alpha);
-                roi.data[i + 1] = warpedBgra.data[i + 1] * alpha + roi.data[i + 1] * (1 - alpha);
-                roi.data[i + 2] = warpedBgra.data[i + 2] * alpha + roi.data[i + 2] * (1 - alpha);
-                roi.data[i + 3] = warpedBgra.data[i + 3] * alpha + roi.data[i + 3] * (1 - alpha);
+                    const alpha = warpedBgra.data[warpedIdx + 3] / 255.0;
+
+                    resultData[resultIdx] = warpedBgra.data[warpedIdx] * alpha + resultData[resultIdx] * (1 - alpha);
+                    resultData[resultIdx + 1] = warpedBgra.data[warpedIdx + 1] * alpha + resultData[resultIdx + 1] * (1 - alpha);
+                    resultData[resultIdx + 2] = warpedBgra.data[warpedIdx + 2] * alpha + resultData[resultIdx + 2] * (1 - alpha);
+                    resultData[resultIdx + 3] = warpedBgra.data[warpedIdx + 3] * alpha + resultData[resultIdx + 3] * (1 - alpha);
+                }
             }
 
             // 清理
