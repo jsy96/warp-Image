@@ -707,7 +707,7 @@
                 srcTriAdj[1][0], srcTriAdj[1][1],
                 srcTriAdj[2][0], srcTriAdj[2][1]
             ]);
-            cv.fillConvexPoly(mask, maskPts, 255);
+            cv.fillConvexPoly(mask, maskPts, [255]);
 
             // 仿射变换
             const dstW = dstXMax - dstXMin;
