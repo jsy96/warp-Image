@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>图像几何校正 - GDAL Warp</title>
+    <title>图像几何校正 - Pure JS</title>
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()" type="text/javascript"></script>
     <style>
         * {
             margin: 0;
@@ -151,6 +152,45 @@
             color: #f44336;
         }
 
+        /* 加载遮罩 */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .loading-overlay.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #333;
+            border-top: 5px solid #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 20px;
+            font-size: 16px;
+            color: #fff;
+        }
+
         /* 图像显示区 */
         .image-area {
             flex: 1;
@@ -229,6 +269,18 @@
     </style>
 </head>
 <body>
+    <!-- OpenCV加载遮罩 -->
+    <div class="loading-overlay" id="opencvLoading">
+        <div class="spinner"></div>
+        <div class="loading-text">正在加载 OpenCV.js...</div>
+    </div>
+
+    <!-- 处理中遮罩 -->
+    <div class="loading-overlay hidden" id="processingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text">正在处理...</div>
+    </div>
+
     <div class="container">
         <!-- 顶部参数配置区 -->
         <div class="config-panel">
@@ -258,7 +310,7 @@
 
             <button class="btn btn-secondary" id="saveBtn" disabled style="background: #9C27B0;">保存图像</button>
 
-            <div class="status" id="status">请选择图像</div>
+            <div class="status" id="status">等待OpenCV.js加载...</div>
         </div>
 
         <!-- 图像显示区 -->
@@ -276,18 +328,29 @@
     </div>
 
     <script>
+        // OpenCV.js加载完成回调
+        function onOpenCvReady() {
+            console.log('OpenCV.js is ready');
+            document.getElementById('opencvLoading').classList.add('hidden');
+            setStatus('OpenCV.js 已加载，请选择图像', 'success');
+            cvReady = true;
+        }
+
         // 全局状态
         const state = {
             originalImage: null,
-            displayImage: null,  // 当前显示的图像（可能是warp后的）
+            displayImage: null,
+            originalImageData: null,  // cv::Mat
             gridX: 6,
             gridY: 6,
             controlPoints: [],
             isDragging: false,
             draggedPoint: null,
             realtimeWarp: false,
-            isWarped: false  // 标记当前显示的是否为warp后的图像
+            isWarped: false
         };
+
+        let cvReady = false;
 
         // DOM元素
         const elements = {
@@ -299,7 +362,9 @@
             saveBtn: document.getElementById('saveBtn'),
             realtimeWarp: document.getElementById('realtimeWarp'),
             status: document.getElementById('status'),
-            canvasContainer: document.getElementById('canvasContainer')
+            canvasContainer: document.getElementById('canvasContainer'),
+            opencvLoading: document.getElementById('opencvLoading'),
+            processingOverlay: document.getElementById('processingOverlay')
         };
 
         // 初始化控制点
@@ -334,7 +399,7 @@
             // 绘制图像
             ctx.drawImage(state.displayImage, 0, 0);
 
-            // 绘制网格线（基于当前控制点位置）
+            // 绘制网格线
             drawGridLines(ctx, canvas.width, canvas.height);
 
             // 更新容器
@@ -351,8 +416,6 @@
                 pointEl.dataset.index = index;
                 pointEl.style.left = point.currentX + 'px';
                 pointEl.style.top = point.currentY + 'px';
-
-                // 拖拽事件
                 pointEl.addEventListener('mousedown', startDrag);
                 wrapper.appendChild(pointEl);
             });
@@ -365,8 +428,7 @@
             ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
             ctx.lineWidth = 1;
 
-            // 绘制连接控制点的网格线
-            // 垂直线（连接同一列的控制点）
+            // 垂直线
             for (let x = 0; x < state.gridX; x++) {
                 ctx.beginPath();
                 for (let y = 0; y < state.gridY; y++) {
@@ -381,7 +443,7 @@
                 ctx.stroke();
             }
 
-            // 水平线（连接同一行的控制点）
+            // 水平线
             for (let y = 0; y < state.gridY; y++) {
                 ctx.beginPath();
                 for (let x = 0; x < state.gridX; x++) {
@@ -419,25 +481,20 @@
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            // 限制在画布范围内
             const clampedX = Math.max(0, Math.min(canvas.width, x));
             const clampedY = Math.max(0, Math.min(canvas.height, y));
 
-            // 更新控制点位置
             state.controlPoints[state.draggedPoint].currentX = clampedX;
             state.controlPoints[state.draggedPoint].currentY = clampedY;
 
-            // 更新DOM元素位置
             const pointEl = wrapper.querySelectorAll('.control-point')[state.draggedPoint];
             pointEl.style.left = clampedX + 'px';
             pointEl.style.top = clampedY + 'px';
 
-            // 重新绘制网格线（不需要重新绘制整个canvas，只需要更新）
             const ctx = canvas.getContext('2d');
             ctx.drawImage(state.displayImage, 0, 0);
             drawGridLines(ctx, canvas.width, canvas.height);
 
-            // 实时Warp
             if (state.realtimeWarp) {
                 performWarp();
             }
@@ -458,98 +515,260 @@
             document.removeEventListener('mouseup', stopDrag);
         }
 
-        // 执行Warp
+        // 执行Warp（使用OpenCV.js）
         async function performWarp() {
-            if (!state.originalImage) return;
+            if (!state.originalImageData || !cvReady) return;
 
-            setStatus('正在执行Warp处理...', 'loading');
-            elements.warpBtn.disabled = true;
+            elements.processingOverlay.classList.remove('hidden');
+
+            // 使用setTimeout让UI有机会更新
+            await new Promise(resolve => setTimeout(resolve, 50));
 
             try {
-                // 准备GCP控制点数据
-                const gcps = state.controlPoints.map(p => ({
-                    sourceX: Math.round(p.originalX),
-                    sourceY: Math.round(p.originalY),
-                    targetX: Math.round(p.currentX),
-                    targetY: Math.round(p.currentY)
-                }));
+                const height = state.originalImageData.rows;
+                const width = state.originalImageData.cols;
 
-                // 将原始图像转换为base64
-                const canvas = document.createElement('canvas');
-                canvas.width = state.originalImage.width;
-                canvas.height = state.originalImage.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(state.originalImage, 0, 0);
-                const imageData = canvas.toDataURL('image/png');
+                // 创建结果图像（BGRA格式用于alpha混合）
+                const result = new cv.Mat(height, width, cv.CV_8UC4);
+                cv.cvtColor(state.originalImageData, result, cv.COLOR_BGR2BGRA);
 
-                // 发送到后端
-                const response = await fetch('http://localhost:5000/api/warp', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        image: imageData,
-                        gcps: gcps,
-                        gridX: state.gridX,
-                        gridY: state.gridY,
-                        width: state.originalImage.width,
-                        height: state.originalImage.height
-                    })
-                });
+                const moveThreshold = 2.0;
+                let warpedCount = 0;
 
-                if (!response.ok) {
-                    throw new Error('Warp处理失败');
+                // 遍历每个网格单元
+                for (let y = 0; y < state.gridY - 1; y++) {
+                    for (let x = 0; x < state.gridX - 1; x++) {
+                        const tl = y * state.gridX + x;
+                        const tr = y * state.gridX + (x + 1);
+                        const bl = (y + 1) * state.gridX + x;
+                        const br = (y + 1) * state.gridX + (x + 1);
+
+                        const src_tl = state.controlPoints[tl];
+                        const src_tr = state.controlPoints[tr];
+                        const src_bl = state.controlPoints[bl];
+                        const src_br = state.controlPoints[br];
+
+                        const dst_tl = state.controlPoints[tl];
+                        const dst_tr = state.controlPoints[tr];
+                        const dst_bl = state.controlPoints[bl];
+                        const dst_br = state.controlPoints[br];
+
+                        // 检查是否有角点移动
+                        let moved = false;
+                        let maxMove = 0;
+                        const points = [
+                            [src_tl, dst_tl],
+                            [src_tr, dst_tr],
+                            [src_bl, dst_bl],
+                            [src_br, dst_br]
+                        ];
+
+                        for (const [src, dst] of points) {
+                            const dist = Math.sqrt(
+                                Math.pow(src.originalX - dst.currentX, 2) +
+                                Math.pow(src.originalY - dst.currentY, 2)
+                            );
+                            maxMove = Math.max(maxMove, dist);
+                            if (dist > moveThreshold) moved = true;
+                        }
+
+                        if (!moved) continue;
+
+                        warpedCount++;
+
+                        // 三角形1: tl, tr, bl (上三角)
+                        // 三角形2: tr, br, bl (下三角)
+                        const triangles = [
+                            {
+                                src: [src_tl, src_tr, src_bl],
+                                dst: [dst_tl, dst_tr, dst_bl]
+                            },
+                            {
+                                src: [src_tr, src_br, src_bl],
+                                dst: [dst_tr, dst_br, dst_bl]
+                            }
+                        ];
+
+                        for (const tri of triangles) {
+                            await processTriangle(result, tri.src, tri.dst, width, height);
+                        }
+                    }
                 }
 
-                const result = await response.json();
+                console.log(`Warp完成: ${warpedCount}个单元被变换`);
 
-                // 加载Warp后的图像，并将其设为新的原始图像
-                const warpedImg = new Image();
-                warpedImg.onload = () => {
-                    // 将warp后的图像设为新的原始图像
-                    state.originalImage = warpedImg;
-                    state.displayImage = warpedImg;
+                // 转换回RGB并显示
+                const resultRgb = new cv.Mat();
+                cv.cvtColor(result, resultRgb, cv.COLOR_BGRA2RGB);
+
+                // 转换为canvas图像
+                const imageData = new ImageData(
+                    new Uint8ClampedArray(resultRgb.data),
+                    resultRgb.cols,
+                    resultRgb.rows
+                );
+
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = width;
+                tempCanvas.height = height;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.putImageData(imageData, 0, 0);
+
+                const img = new Image();
+                img.onload = () => {
+                    state.displayImage = img;
                     state.isWarped = true;
-                    // 重新初始化控制点（基于新的图像）
-                    initControlPoints();
                     drawImage();
                     setStatus('Warp处理完成', 'success');
-                    elements.warpBtn.disabled = false;
+                    elements.processingOverlay.classList.add('hidden');
                 };
-                warpedImg.onerror = () => {
-                    throw new Error('加载Warp图像失败');
-                };
-                warpedImg.src = 'data:image/png;base64,' + result.image;
+                img.src = tempCanvas.toDataURL();
+
+                // 清理
+                result.delete();
+                resultRgb.delete();
 
             } catch (error) {
                 console.error('Warp error:', error);
                 setStatus('Warp处理失败: ' + error.message, 'error');
-                elements.warpBtn.disabled = false;
+                elements.processingOverlay.classList.add('hidden');
             }
         }
 
-        // 设置状态
-        function setStatus(message, type = '') {
-            elements.status.textContent = message;
-            elements.status.className = 'status ' + type;
+        // 处理单个三角形
+        async function processTriangle(result, srcTri, dstTri, width, height) {
+            // 计算源三角形边界
+            const srcTriArr = srcTri.map(p => [p.originalX, p.originalY]);
+            let srcXMin = Math.floor(Math.min(...srcTriArr.map(p => p[0])));
+            let srcXMax = Math.ceil(Math.max(...srcTriArr.map(p => p[0])));
+            let srcYMin = Math.floor(Math.min(...srcTriArr.map(p => p[1])));
+            let srcYMax = Math.ceil(Math.max(...srcTriArr.map(p => p[1])));
+
+            // 边界检查
+            srcXMin = Math.max(0, srcXMin);
+            srcXMax = Math.min(width, srcXMax);
+            srcYMin = Math.max(0, srcYMin);
+            srcYMax = Math.min(height, srcYMax);
+
+            if (srcXMax <= srcXMin || srcYMax <= srcYMin) return;
+
+            // 计算目标三角形边界
+            const dstTriArr = dstTri.map(p => [p.currentX, p.currentY]);
+            let dstXMin = Math.floor(Math.min(...dstTriArr.map(p => p[0])));
+            let dstXMax = Math.ceil(Math.max(...dstTriArr.map(p => p[0])));
+            let dstYMin = Math.floor(Math.min(...dstTriArr.map(p => p[1])));
+            let dstYMax = Math.ceil(Math.max(...dstTriArr.map(p => p[1])));
+
+            // 边界检查
+            dstXMin = Math.max(0, dstXMin);
+            dstXMax = Math.min(width, dstXMax);
+            dstYMin = Math.max(0, dstYMin);
+            dstYMax = Math.min(height, dstYMax);
+
+            if (dstXMax <= dstXMin || dstYMax <= dstYMin) return;
+
+            // 提取源区域
+            const srcRegion = state.originalImageData.roi(
+                new cv.Rect(srcXMin, srcYMin, srcXMax - srcXMin, srcYMax - srcYMin)
+            );
+
+            // 调整三角形坐标（相对于源区域）
+            const srcTriAdj = srcTri.map(p => [
+                p.originalX - srcXMin,
+                p.originalY - srcYMin
+            ]);
+
+            // 调整目标三角形坐标（相对于目标区域）
+            const dstTriAdj = dstTri.map(p => [
+                p.currentX - dstXMin,
+                p.currentY - dstYMin
+            ]);
+
+            // OpenCV格式的三角形坐标
+            const srcTriMat = cv.matFromArray(3, 1, cv.CV_32FC2, [
+                srcTriAdj[0][0], srcTriAdj[0][1],
+                srcTriAdj[1][0], srcTriAdj[1][1],
+                srcTriAdj[2][0], srcTriAdj[2][1]
+            ]);
+
+            const dstTriMat = cv.matFromArray(3, 1, cv.CV_32FC2, [
+                dstTriAdj[0][0], dstTriAdj[0][1],
+                dstTriAdj[1][0], dstTriAdj[1][1],
+                dstTriAdj[2][0], dstTriAdj[2][1]
+            ]);
+
+            // 计算仿射变换矩阵
+            const M = cv.getAffineTransform(srcTriMat, dstTriMat);
+
+            // 创建三角形mask
+            const mask = cv.Mat.zeros(srcYMax - srcYMin, srcXMax - srcXMin, cv.CV_8UC1);
+            const maskPts = cv.matFromArray(3, 1, cv.CV_32SC2, [
+                srcTriAdj[0][0], srcTriAdj[0][1],
+                srcTriAdj[1][0], srcTriAdj[1][1],
+                srcTriAdj[2][0], srcTriAdj[2][1]
+            ]);
+            cv.fillConvexPoly(mask, maskPts, 255);
+
+            // 仿射变换
+            const dstW = dstXMax - dstXMin;
+            const dstH = dstYMax - dstYMin;
+
+            const warpedImg = new cv.Mat();
+            cv.warpAffine(srcRegion, warpedImg, M, new cv.Size(dstW, dstH),
+                cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(0));
+
+            const warpedMask = new cv.Mat();
+            cv.warpAffine(mask, warpedMask, M, new cv.Size(dstW, dstH),
+                cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(0));
+
+            // 转换为BGRA并设置alpha
+            const warpedBgra = new cv.Mat();
+            cv.cvtColor(warpedImg, warpedBgra, cv.COLOR_BGR2BGRA);
+
+            // 将mask作为alpha通道
+            const channels = new cv.MatVector();
+            cv.split(warpedBgra, channels);
+            channels.push(warpedMask);
+            cv.merge(channels, warpedBgra);
+
+            // Alpha混合到结果
+            const roi = result.roi(new cv.Rect(dstXMin, dstYMin, dstW, dstH));
+
+            // 简单的alpha混合
+            for (let i = 0; i < roi.data.length; i += 4) {
+                const alpha = warpedBgra.data[i + 3] / 255.0;
+                roi.data[i] = warpedBgra.data[i] * alpha + roi.data[i] * (1 - alpha);
+                roi.data[i + 1] = warpedBgra.data[i + 1] * alpha + roi.data[i + 1] * (1 - alpha);
+                roi.data[i + 2] = warpedBgra.data[i + 2] * alpha + roi.data[i + 2] * (1 - alpha);
+                roi.data[i + 3] = warpedBgra.data[i + 3] * alpha + roi.data[i + 3] * (1 - alpha);
+            }
+
+            // 清理
+            srcRegion.delete();
+            srcTriMat.delete();
+            dstTriMat.delete();
+            mask.delete();
+            maskPts.delete();
+            M.delete();
+            warpedImg.delete();
+            warpedMask.delete();
+            warpedBgra.delete();
+            channels.delete();
         }
 
-        // 保存图像到本地
+        // 保存图像
         function saveImage() {
             if (!state.displayImage) {
                 setStatus('没有可保存的图像', 'error');
                 return;
             }
 
-            // 创建canvas并绘制当前图像（不包含网格线和控制点）
             const canvas = document.createElement('canvas');
             canvas.width = state.displayImage.width;
             canvas.height = state.displayImage.height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(state.displayImage, 0, 0);
 
-            // 转换为blob并下载
             canvas.toBlob((blob) => {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -563,10 +782,21 @@
             }, 'image/png');
         }
 
+        // 设置状态
+        function setStatus(message, type = '') {
+            elements.status.textContent = message;
+            elements.status.className = 'status ' + type;
+        }
+
         // 事件监听
         elements.imageInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
+
+            if (!cvReady) {
+                setStatus('OpenCV.js 尚未加载完成，请稍候', 'error');
+                return;
+            }
 
             setStatus('正在加载图像...', 'loading');
 
@@ -576,8 +806,20 @@
                 img.onload = () => {
                     state.originalImage = img;
                     state.displayImage = img;
-                    state.gridX = parseInt(elements.gridX.value) || 3;
-                    state.gridY = parseInt(elements.gridY.value) || 3;
+                    state.gridX = parseInt(elements.gridX.value) || 6;
+                    state.gridY = parseInt(elements.gridY.value) || 6;
+
+                    // 创建OpenCV Mat
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    // 转换为OpenCV格式
+                    const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                    state.originalImageData = cv.matFromImageData(imageData);
+
                     initControlPoints();
                     drawImage();
                     elements.warpBtn.disabled = false;
@@ -604,13 +846,22 @@
             if (state.originalImage) {
                 initControlPoints();
                 state.displayImage = state.originalImage;
+                // 重新创建Mat
+                const canvas = document.createElement('canvas');
+                canvas.width = state.originalImage.width;
+                canvas.height = state.originalImage.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(state.originalImage, 0, 0);
+                if (state.originalImageData) state.originalImageData.delete();
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                state.originalImageData = cv.matFromImageData(imageData);
+
                 drawImage();
                 setStatus('网格已更新', 'success');
             }
         });
 
         elements.warpBtn.addEventListener('click', performWarp);
-
         elements.saveBtn.addEventListener('click', saveImage);
 
         elements.realtimeWarp.addEventListener('change', (e) => {
