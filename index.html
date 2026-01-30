@@ -616,17 +616,27 @@
 
                 const img = new Image();
                 img.onload = () => {
+                    // 将warp后的图像设为新的原始图像
+                    state.originalImage = img;
                     state.displayImage = img;
                     state.isWarped = true;
+
+                    // 更新OpenCV Mat为warp后的图像
+                    if (state.originalImageData) {
+                        state.originalImageData.delete();
+                    }
+                    state.originalImageData = resultRgba.clone();
+
+                    // 重新初始化控制点（基于新图像）
+                    initControlPoints();
                     drawImage();
                     setStatus('Warp处理完成', 'success');
                     elements.processingOverlay.classList.add('hidden');
                 };
                 img.src = tempCanvas.toDataURL();
 
-                // 清理
+                // 注意：resultRgba在回调中克隆，不在这里删除
                 result.delete();
-                resultRgba.delete();
 
             } catch (error) {
                 console.error('Warp error:', error);
