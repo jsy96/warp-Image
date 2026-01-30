@@ -597,7 +597,7 @@
 
                 console.log(`Warp完成: ${warpedCount}个单元被变换`);
 
-                // 转换为RGBA并显示
+                // 转换为RGBA并显示（仅用于显示，存储时保持BGRA）
                 const resultRgba = new cv.Mat();
                 cv.cvtColor(result, resultRgba, cv.COLOR_BGRA2RGBA);
 
@@ -621,11 +621,11 @@
                     state.displayImage = img;
                     state.isWarped = true;
 
-                    // 更新OpenCV Mat为warp后的图像
+                    // 更新OpenCV Mat为warp后的图像（使用BGRA格式，保持一致性）
                     if (state.originalImageData) {
                         state.originalImageData.delete();
                     }
-                    state.originalImageData = resultRgba.clone();
+                    state.originalImageData = result.clone();  // 存储BGRA格式
 
                     // 重新初始化控制点（基于新图像）
                     initControlPoints();
@@ -834,9 +834,12 @@
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0);
 
-                    // 转换为OpenCV格式
+                    // 转换为OpenCV格式（RGBA -> BGRA，统一使用OpenCV的BGRA格式）
                     const imageData = ctx.getImageData(0, 0, img.width, img.height);
-                    state.originalImageData = cv.matFromImageData(imageData);
+                    const rgbaMat = cv.matFromImageData(imageData);
+                    state.originalImageData = new cv.Mat();
+                    cv.cvtColor(rgbaMat, state.originalImageData, cv.COLOR_RGBA2BGRA);
+                    rgbaMat.delete();
 
                     initControlPoints();
                     drawImage();
@@ -864,7 +867,7 @@
             if (state.originalImage) {
                 initControlPoints();
                 state.displayImage = state.originalImage;
-                // 重新创建Mat
+                // 重新创建Mat（RGBA -> BGRA）
                 const canvas = document.createElement('canvas');
                 canvas.width = state.originalImage.width;
                 canvas.height = state.originalImage.height;
@@ -872,7 +875,10 @@
                 ctx.drawImage(state.originalImage, 0, 0);
                 if (state.originalImageData) state.originalImageData.delete();
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                state.originalImageData = cv.matFromImageData(imageData);
+                const rgbaMat = cv.matFromImageData(imageData);
+                state.originalImageData = new cv.Mat();
+                cv.cvtColor(rgbaMat, state.originalImageData, cv.COLOR_RGBA2BGRA);
+                rgbaMat.delete();
 
                 drawImage();
                 setStatus('网格已更新', 'success');
