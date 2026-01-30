@@ -597,15 +597,15 @@
 
                 console.log(`Warp完成: ${warpedCount}个单元被变换`);
 
-                // 转换回RGB并显示
-                const resultRgb = new cv.Mat();
-                cv.cvtColor(result, resultRgb, cv.COLOR_BGRA2RGB);
+                // 转换为RGBA并显示
+                const resultRgba = new cv.Mat();
+                cv.cvtColor(result, resultRgba, cv.COLOR_BGRA2RGBA);
 
                 // 转换为canvas图像
                 const imageData = new ImageData(
-                    new Uint8ClampedArray(resultRgb.data),
-                    resultRgb.cols,
-                    resultRgb.rows
+                    new Uint8ClampedArray(resultRgba.data),
+                    resultRgba.cols,
+                    resultRgba.rows
                 );
 
                 const tempCanvas = document.createElement('canvas');
@@ -626,7 +626,7 @@
 
                 // 清理
                 result.delete();
-                resultRgb.delete();
+                resultRgba.delete();
 
             } catch (error) {
                 console.error('Warp error:', error);
